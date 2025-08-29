@@ -1,1 +1,1 @@
-# genai-assessor
+# using-genai
