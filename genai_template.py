@@ -1,16 +1,16 @@
 import os
-import google.generativeai as genAi
+import google.generativeai as genai
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
  
 load_dotenv()
-genAi.configure(api_key = os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key = os.getenv("GEMINI_API_KEY"))
  
-llm = genAi.GenerativeModel(
+llm = genai.GenerativeModel(
     model_name = "gemini-2.5-flash",
-    system_instruction = ""
-    generation_config=genAi.types.GenerationConfig(
+    system_instruction = "",
+    generation_config=genai.types.GenerationConfig(
         temperature=0.7,
         top_p=0.95
     )
