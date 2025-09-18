@@ -12,7 +12,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
-# Essa classe garante que o objeto de Python passe todos esses campos
+conn = get_conn()
+
 class AddTransactionArgs(BaseModel):
     amount: float = Field(..., description="Valor da transação (use positivo).")
     source_text: str = Field(..., description="Texto original do usuário.")
@@ -27,7 +28,14 @@ class AddTransactionArgs(BaseModel):
     payment_method: Optional[str] = Field(default=None, description="Forma de pagamento (opcional).")
 
 
-#Garante que o campo type da tabela transactions receba um id válido (1=INCOME, 2=EXPENSES, 3=TRANSFER
+class QueryTransactionsArgs(BaseModel):
+    text: Optional[str] = Field(default=None, description="Texto a buscar em source_text ou description (opcional).")
+    type_name: Optional[str] = Field(default=None, description="Nome do tipo: INCOME | EXPENSES | TRANSFER (opcional).")
+    date_local: Optional[str] = Field(default=None, description="Data local YYYY-MM-DD (America/Sao_Paulo) (opcional).")
+    date_from_local: Optional[str] = Field(default=None, description="Data inicial local YYYY-MM-DD (America/Sao_Paulo) (opcional).")
+    date_to_local: Optional[str] = Field(default=None, description="Data final local YYYY-MM-DD (America/Sao_Paulo) (opcional).")
+    limit: int = Field(default=20, description="Número máximo de registros a retornar.")
+
 def _resolve_type_id(cur, type_id: Optional[int], type_name: Optional[str]) -> Optional[int]:
     if type_name:
         t = type_name.strip().upper()
@@ -41,7 +49,6 @@ def _resolve_type_id(cur, type_id: Optional[int], type_name: Optional[str]) -> O
     return 2
 
 
-# Tool: add_transaction
 @tool("add_transaction", args_schema=AddTransactionArgs)
 def add_transaction(
     amount: float,
@@ -53,8 +60,7 @@ def add_transaction(
     description: Optional[str] = None,
     payment_method: Optional[str] = None,
 ) -> dict:
-    """Insere uma transação financeira no banco de dados Postgres.""" # docstring obrigatório da @tools do langchain (estranho, mas legal né?)
-    conn = get_conn()
+    """Insere uma transação financeira no banco de dados Postgres."""
     cur = conn.cursor()
     try:
         resolved_type_id = _resolve_type_id(cur, type_id, type_name)
@@ -98,6 +104,35 @@ def add_transaction(
         except Exception:
             pass
 
+@tool("query_transactions", args_schema=QueryTransactionsArgs)
+def query_transactions(
+    text: Optional[str] = None,
+    type_name: Optional[str] = None,
+    date_local: Optional[str] = None,
+    date_from_local: Optional[str] = None,
+    date_to_local: Optional[str] = None,
+    limit: int = 20,
+) -> dict:
+    """
+    Consulta transações com filtros por texto (source_text/description), tipo e datas locais (America/Sao_Paulo).
+    Os dados devem vir na seguinte ordem:
+    - Intervalo (date_from_local/date_to_local): ASC (cronológico).
+    - Caso contrário: DESC (mais recentes primeiro).
+    """
 
-# Exporta a lista de tools
-TOOLS = [add_transaction]
+
+@tool("total_balance")
+def total_balance() -> dict:
+    """
+    Retorna o saldo total (INCOME - EXPENSES) em todo o histórico (ignora TRANSFER).
+    """
+
+
+@tool("daily_balance")
+def daily_balance(date_local: str) -> dict:
+    """
+    Retorna o saldo (INCOME - EXPENSES) do dia local informado (YYYY-MM-DD) em America/Sao_Paulo.
+    Ignora TRANSFER (type=3).
+    """
+
+TOOLS = [add_transaction, query_transactions, total_balance, daily_balance]
