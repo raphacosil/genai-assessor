@@ -12,7 +12,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
-conn = get_conn()
+def close_conn(conn):
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass
 
 class AddTransactionArgs(BaseModel):
     amount: float = Field(..., description="Valor da transação (use positivo).")
@@ -60,7 +65,10 @@ def add_transaction(
     description: Optional[str] = None,
     payment_method: Optional[str] = None,
 ) -> dict:
-    """Insere uma transação financeira no banco de dados Postgres."""
+    """
+    Adiciona uma transação (amount positivo) com os dados fornecidos.
+    """
+    conn = get_conn()
     cur = conn.cursor()
     try:
         resolved_type_id = _resolve_type_id(cur, type_id, type_name)
@@ -100,7 +108,7 @@ def add_transaction(
     finally:
         try:
             cur.close()
-            conn.close()
+            close_conn(conn)
         except Exception:
             pass
 
@@ -111,28 +119,197 @@ def query_transactions(
     date_local: Optional[str] = None,
     date_from_local: Optional[str] = None,
     date_to_local: Optional[str] = None,
-    limit: int = 20,
+    limit: int = 20
 ) -> dict:
-    """
-    Consulta transações com filtros por texto (source_text/description), tipo e datas locais (America/Sao_Paulo).
+    """Consulta as transações com filtros por texto (source_text/description), tipo e datas locais (America/Sao_Paulo).
     Os dados devem vir na seguinte ordem:
-    - Intervalo (date_from_local/date_to_local): ASC (cronológico).
-    - Caso contrário: DESC (mais recentes primeiro).
-    """
+     - Intervalo (date_from_local/date_to_local): ASC (cronológico).
+     - Caso contrário: DESC (mais recente primeiro)"""
+     
+    conn = get_conn()
+    cur = conn.cursor()
 
+    try:
+        base_query = """
+        SELECT * FROM transactions t
+        JOIN transaction_types tt ON tt.id = t.type
+        WHERE 1=1
+        """
+        conditions, params = [], []
+
+        if text:
+            conditions.append("(t.source_text ILIKE %s OR t.description ILIKE %s)")
+            params.extend([f"%{text}%", f"%{text}%"])
+
+        if type_name:
+            conditions.append("tt.type ILIKE %s")
+            params.append(f"%{type_name}%")
+
+        if date_local:
+            conditions.append("t.occurred_at::date = (%s::date AT TIME ZONE 'America/Sao_Paulo')")
+            params.append(date_local)
+
+        if date_from_local and date_to_local:
+            conditions.append("""t.occurred_at::date BETWEEN
+                                (%s::date AT TIME ZONE 'America/Sao_Paulo')
+                                AND (%s::date AT TIME ZONE 'America/Sao_Paulo')""")
+            params.extend([date_from_local, date_to_local])
+            order_clause = "ORDER BY t.occurred_at ASC"
+        else:
+            order_clause = "ORDER BY t.occurred_at DESC"
+
+        query = base_query + " AND ".join(conditions) + f" {order_clause} LIMIT %s"
+        params.append(limit)
+
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+        return {"transactions": [
+            {
+                "id": r[0],
+                "amount": float(r[1]),
+                "type_name": r[2],
+                "category_id": r[3],
+                "description": r[4],
+                "payment_method": r[5],
+                "occurred_at": r[6].isoformat(),
+                "source_text": r[7]
+            }
+            for r in rows
+        ]}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        cur.close()
+        close_conn(conn)
+        
 
 @tool("total_balance")
 def total_balance() -> dict:
     """
     Retorna o saldo total (INCOME - EXPENSES) em todo o histórico (ignora TRANSFER).
     """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(CASE WHEN tt.type = 'INCOME' THEN t.amount END), 0)
+                - COALESCE(SUM(CASE WHEN tt.type = 'EXPENSES' THEN t.amount END), 0) AS balance
+            FROM transactions t
+            JOIN transaction_types tt ON tt.id = t.type
+            """)
+        return {"saldo_total": float(cur.fetchone()[0])}
 
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        close_conn(conn)
 
 @tool("daily_balance")
 def daily_balance(date_local: str) -> dict:
     """
-    Retorna o saldo (INCOME - EXPENSES) do dia local informado (YYYY-MM-DD) em America/Sao_Paulo.
+    Retorna o saldo (INCOME - EXPENSES) do dia local informado (YYYY-MM-DD) em America_Sao_Paulo.
     Ignora TRANSFER (type=3).
     """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        SELECT 
+            COALESCE(SUM(CASE WHEN tt.type = 'INCOME' THEN t.amount END), 0)
+            - COALESCE(SUM(CASE WHEN tt.type = 'EXPENSES' THEN t.amount END), 0) AS balance
+        FROM transactions t
+        JOIN transaction_types tt ON tt.id = t.type
+        WHERE t.occurred_at::date = %s::date
+        """, (date_local,))
+        return {"saldo_dia": float(cur.fetchone()[0]), "date": date_local}
 
-TOOLS = [add_transaction, query_transactions, total_balance, daily_balance]
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        close_conn(conn)
+
+@tool("in_time_interval_balance")
+def in_time_interval_balance(date_from_local: str, date_to_local: str) -> dict:
+    """
+    Retorna o saldo (INCOME - EXPENSES) do intervalo de datas local informado (YYYY-MM-DD) em America_Sao_Paulo.
+    Ignora TRANSFER (type=3).
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        SELECT 
+            COALESCE(SUM(CASE WHEN tt.type = 'INCOME' THEN t.amount END), 0)
+            - COALESCE(SUM(CASE WHEN tt.type = 'EXPENSES' THEN t.amount END), 0) AS balance
+        FROM transactions t
+        JOIN transaction_types tt ON tt.id = t.type
+        WHERE t.occurred_at::date BETWEEN %s::date AND %s::date
+        """, (date_from_local, date_to_local))
+        return {"saldo_intervalo": float(cur.fetchone()[0]), "date_from": date_from_local, "date_to": date_to_local}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        close_conn(conn)
+
+@tool("in_time_interval_income")
+def in_time_interval_income(date_from_local: str, date_to_local: str) -> dict:
+    """
+    Retorna o total de INCOME do intervalo de datas local informado (YYYY-MM-DD) em America_Sao_Paulo.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        SELECT 
+            COALESCE(SUM(CASE WHEN tt.type = 'INCOME' THEN t.amount END), 0)
+        FROM transactions t
+        JOIN transaction_types tt ON tt.id = t.type
+        WHERE t.occurred_at::date BETWEEN %s::date AND %s::date
+        """, (date_from_local, date_to_local))
+        return {"total_income": float(cur.fetchone()[0]), "date_from": date_from_local, "date_to": date_to_local}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        close_conn(conn)
+
+@tool("in_time_interval_expenses")
+def in_time_interval_expenses(date_from_local: str, date_to_local: str) -> dict:
+    """
+    Retorna o total de EXPENSES do intervalo de datas local informado (YYYY-MM-DD) em America_Sao_Paulo.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        SELECT 
+            COALESCE(SUM(CASE WHEN tt.type = 'EXPENSES' THEN t.amount END), 0)
+        FROM transactions t
+        JOIN transaction_types tt ON tt.id = t.type
+        WHERE t.occurred_at::date BETWEEN %s::date AND %s::date
+        """, (date_from_local, date_to_local))
+        return {"total_expenses": float(cur.fetchone()[0]), "date_from": date_from_local, "date_to": date_to_local}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        close_conn(conn)
+
+TOOLS = [
+    add_transaction,
+    query_transactions,
+    total_balance,
+    daily_balance,
+    in_time_interval_balance,
+    in_time_interval_income,
+    in_time_interval_expenses
+]

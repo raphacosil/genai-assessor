@@ -82,4 +82,4 @@ while True:
         )
         print(resposta["output"])
     except Exception as e:
-        print("Erro:", e)
+        print("Error:", e)
