@@ -94,3 +94,6 @@ try:
     print(response)
 except Exception as e:
     print("Erro ao consumir a API: ", e)
+    
+    
+# Hello
