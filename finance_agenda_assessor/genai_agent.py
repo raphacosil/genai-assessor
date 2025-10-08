@@ -358,8 +358,8 @@ schedule_agent = RunnableWithMessageHistory(
     return_intermediate_steps=False,
 )
 
-router_agent = RunnableWithMessageHistory(
-    prompt_router | fast_llm | StrOutputParser(),
+router_chain = RunnableWithMessageHistory(
+    prompt_router | fast_llm,
     get_session_history=get_session_history,
     input_messages_key="input",
     history_messages_key="chat_history"
@@ -373,8 +373,10 @@ orchestrator_agent = RunnableWithMessageHistory(
 )
 
 def execute_assessor_flow(pergunta_usuario, session_id):
-    resposta_router = router_agent.invoke(input=pergunta_usuario, config={"configurable": {"session_id": session_id}})
-    
+    resposta_router = router_chain.invoke(
+        {"input": pergunta_usuario},
+        config={"configurable": {"session_id": session_id}}
+    )
     if "ROUTE" not in resposta_router:
         return resposta_router
 
