@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import psycopg2
 from typing import Optional
 from langchain.tools import tool
-from langchain.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 
 load_dotenv()
 

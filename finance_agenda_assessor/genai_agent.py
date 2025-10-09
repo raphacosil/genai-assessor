@@ -377,8 +377,11 @@ def execute_assessor_flow(pergunta_usuario, session_id):
         {"input": pergunta_usuario},
         config={"configurable": {"session_id": session_id}}
     )
-    if "ROUTE" not in resposta_router:
-        return resposta_router
+    
+    text_router = resposta_router.content if hasattr(resposta_router, "content") else str(resposta_router)
+    
+    if "ROUTE" not in text_router:
+        return text_router
 
 
 while True:
@@ -393,6 +396,6 @@ while True:
             session_id="PRECISA_MAS_NÃO_IMPORTA"
         )
         
-        print(resposta["output"])
+        print(resposta)
     except Exception as e:
         print("Erro ao consumir a API: ", e)
