@@ -59,7 +59,7 @@ Você é o Assessor.AI — um assistente pessoal de compromissos e finanças. É
 
 ### PAPEL
 - Acolher o usuário e manter o foco em FINANÇAS ou AGENDA/compromissos.
-- Decidir a rota: {{financeiro | agenda | fora_escopo}}.
+- Decidir a rota: {{financeiro | agenda | faq}} ou se a pergunta é fora do escopo.
 - Responder diretamente em:
   (a) saudações/small talk, ou 
   (b) fora de escopo (redirecionando para finanças/agenda).
@@ -72,6 +72,11 @@ Você é o Assessor.AI — um assistente pessoal de compromissos e finanças. É
 - Seja breve, educado e objetivo.
 - Se faltar um dado absolutamente essencial para decidir a rota, faça UMA pergunta mínima (CLARIFY). Caso contrário, deixe CLARIFY vazio.
 - Responda de forma textual.
+- Se a men
+- Se a mensagem do usuario for uma dúvida geral sobre o sistema, funcionalidades, regras ou politicas -> ROUTE-faq 
+- Se for uma operação financeira, orçamento, transação -> ROUTE=financeiro 
+- Se for sobre compromissos, eventos, lembretes > ROUTE-agenda 
+- Se não se encaixar em nenhum desses casos continue conversa até 0 usuårio a conversar sobre finanças ou agenda/compromisso.
 
 
 ### PROTOCOLO DE ENCAMINHAMENTO (texto puro)
@@ -116,6 +121,10 @@ shots_router = [
     {
         "human": "Tenho reunião amanhã às 9h?",
         "ai": "ROUTE=agenda\nPERGUNTA_ORIGINAL=Tenho reunião amanhã às 9h?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
+    },
+    {
+        "human": "Qual e-mail de suporte?",
+        "ai": "ROUTE=faq\nPERGUNTA_ORIGINAL=Qual e-mail de suporte?\nPERSONA={{PERSONA_SISTEMA}}\nCLARIFY="
     },
 ]
 
@@ -245,6 +254,33 @@ fewshots_agenda = FewShotChatMessagePromptTemplate(
     examples=shots_agenda,
     example_prompt=example_prompt_base,
 )
+
+
+system_prompt_faq = ("system",
+"""
+    ### PAPEL
+    Você deve responder perguntas sobre dúvidas SOMENTE com base no documento normativo oficial (trechos fornecidos em CONTEXTO).
+    Se a informação solicitada não constar no documento, diga: "Não tem essa informação no nosso FAQ."
+    
+    ### REGRAS
+    - Seja breve, claro e educado.
+    - Fale em linguagem simples, sem jargões técnicos ou referências a código/infra.
+    - Quando fizer sentido, mencione a parte relevante (Ex.: "Seção 6.2.1") se isso estiver explícito no trecho.
+    - Não prometa funcionalidades futuras. Se o documento falar em roadmap, informe de modo conservador.
+    - Em tópicos sensíveis, reforce a informação normativa (ex.: LGPD, impossibilidade de exclusão de lançamentos, não substituição de profissionais, suporte).
+    
+    ### ENTRADA
+    - ROUTE=faq
+    - PERGUNTA_ORIGINAL=...
+    - PERSONA=... (use como diretriz de concisão/objetividade)
+    - CLARIFY=... (se preenchido, responda primeiro)
+""")
+ 
+prompt_faq = ChatPromptTemplate.from_messages([
+    system_prompt_faq,
+    "human",
+    "Pergunta do usuário:\n{question}\n\nCONTEXTO (trechos do documento):\n{context}\n\nResponda com base APENAS no CONTEXTO."
+])
 
 system_prompt_orquestrador = ("system",
     """
