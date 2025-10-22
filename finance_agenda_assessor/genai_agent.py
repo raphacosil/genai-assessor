@@ -412,20 +412,49 @@ orchestrator_agent = RunnableWithMessageHistory(
 )
 
 faq_chain_core = (
-    RunnablePassthrough.assign
+    RunnablePassthrough.assign(
+        question = itemgetter("input"),
+        context=lambda x: get_faq_context(x["input"])
+    )
+    | prompt_faq | fast_llm | StrOutputParser()
 )
 
-def execute_assessor_flow(pergunta_usuario, session_id):
-    resposta_router = router_chain.invoke(
-        {"input": pergunta_usuario},
-        config={"configurable": {"session_id": session_id}}
-    )
+def execute_assessor_flow(user_question: str, session_id: str):
+    """
+    Função que controla o fluxo do assessor com base no retorno do router (se ele encaminhará para um dos agentes de acordo com a pergunta o usuário).
+    """
+    response_router = router_chain.invoke(input={"input": user_question},
+                                        config={"configurable": {"session_id": session_id}})
     
-    text_router = resposta_router.content if hasattr(resposta_router, "content") else str(resposta_router)
-    
-    if "ROUTE" not in text_router:
-        return text_router
-
+    if not "ROUTE=" in response_router:
+        return response_router
+    else:
+        
+        if "ROUTE=financeiro" in response_router:
+            resposta_finance = finance_agent.invoke(input={"input": response_router},
+                                        config={"configurable": {"session_id": session_id}})
+            output_orchestrator = orchestrator_agent.invoke(input={"input": resposta_finance["output"]},
+                                        config={"configurable": {"session_id": session_id}})
+            
+            print(output_orchestrator)
+            return output_orchestrator
+        
+        elif "ROUTE=agenda" in response_router:
+            resposta_schedule = schedule_agent.invoke(input={"input": response_router},
+                                        config={"configurable": {"session_id": session_id}})
+            
+            output_orchestrator = orchestrator_agent.invoke(input={"input": resposta_schedule["output"]},
+                                        config={"configurable": {"session_id": session_id}})
+            
+            print(output_orchestrator)
+            return output_orchestrator
+        
+        elif "ROUTE=faq" in response_router:
+            response_faq = faq_chain_core.invoke(input={"input": user_question},
+                                        config={"configurable": {"session_id": session_id}})
+            
+            print(response_faq)
+            return response_faq
 
 while True:
     try:
@@ -435,7 +464,7 @@ while True:
             break
         
         resposta = execute_assessor_flow(
-            pergunta_usuario=user_input,
+            user_question=user_input,
             session_id="PRECISA_MAS_NÃO_IMPORTA"
         )
         

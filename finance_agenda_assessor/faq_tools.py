@@ -16,7 +16,7 @@ def get_faq_context(question: str) -> str:
     splitter = RecursiveCharacterTextSplitter(chunck_size=700, chunck_overlap=150)
     chunks = splitter.split_documents(docs)
     
-    embeddings = GoogleGenerativeAIEmbeddings(model = "models/text-embedding-004", google_api_key = DATABASE_URL)
+    embeddings = GoogleGenerativeAIEmbeddings(model = "models/text-embedding-004", google_api_key = DATABASE_URL, transport="rest")
 
     db = FAISS.from_documents(chunks, embeddings)
     results = db.similarity_search(question, k=6)
