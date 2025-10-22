@@ -10,11 +10,14 @@ from langchain_core.prompts import (
 from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.runnables import RunnablePassthrough
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from pg_tools import TOOLS
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from operator import itemgetter
+from faq_tools import get_faq_context
 
 
 load_dotenv()
@@ -406,6 +409,10 @@ orchestrator_agent = RunnableWithMessageHistory(
     get_session_history=get_session_history,
     input_messages_key="input",
     history_messages_key="chat_history"
+)
+
+faq_chain_core = (
+    RunnablePassthrough.assign
 )
 
 def execute_assessor_flow(pergunta_usuario, session_id):
